@@ -58,35 +58,35 @@ class Sha1Hash(object):
     def update(self, arg):
         if isinstance(arg, (bytes, bytearray)):
             arg = io.BytesIO(arg)
-        chunk = self._unprocessed + arg.read(64 - len(self._unprocessed))
-        while len(chunk) == 64:
-            self._h = process_part(chunk, *self._h)
+        bite = self._unprocessed + arg.read(64 - len(self._unprocessed))
+        while len(bite) == 64:
+            self._h = abcde_func_part(bite, *self._h)
             self._message_byte_length += 64
-            chunk = arg.read(64)
+            bite = arg.read(64)
 
-        self._unprocessed = chunk
+        self._unprocessed = bite
         return self
 
     def update_trunc(self, arg, init_hash):
 
         if isinstance(arg, (bytes, bytearray)):
             arg = io.BytesIO(arg)
-        chunk = self._unprocessed + arg.read(64 - len(self._unprocessed))
+        bite = self._unprocessed + arg.read(64 - len(self._unprocessed))
         self._h = init_hash
-        while len(chunk) == 64:
-            self._h = process_part(chunk, *self._h)
+        while len(bite) == 64:
+            self._h = abcde_func_part(bite, *self._h)
             self._message_byte_length += 64
-            chunk = arg.read(64)
+            bite = arg.read(64)
 
-        self._unprocessed = chunk
+        self._unprocessed = bite
         return self
 
     def get_first_hash(self, arg):
         if isinstance(arg, (bytes, bytearray)):
             arg = io.BytesIO(arg)
-        chunk = self._unprocessed + arg.read(64 - len(self._unprocessed))
+        bite = self._unprocessed + arg.read(64 - len(self._unprocessed))
 
-        return process_part(chunk, *self._h)
+        return abcde_func_part(bite, *self._h)
 
     def digest(self):
         return b''.join(struct.pack(b'>I', h) for h in self._produce_digest())
@@ -101,10 +101,10 @@ class Sha1Hash(object):
         message += b'\x00' * ((56 - (message_byte_length + 1) % 64) % 64)
         message_bit_length = message_byte_length * 8
         message += struct.pack(b'>Q', message_bit_length)
-        h = process_part(message[:64], *self._h)
+        h = abcde_func_part(message[:64], *self._h)
         if len(message) == 64:
             return h
-        return process_part(message[64:], *h)
+        return abcde_func_part(message[64:], *h)
 
     def hexdigest_trunc(self):
         return '%08x%08x%08x%08x%08x' % self._produce_digest_trunc()
@@ -116,10 +116,10 @@ class Sha1Hash(object):
         message += b'\x00' * ((56 - (message_byte_length + 1) % 64) % 64)
         message_bit_length = message_byte_length * 8
         message += struct.pack(b'>Q', message_bit_length)
-        h = process_part(message[:64], *self._h)
+        h = abcde_func_part(message[:64], *self._h)
         if len(message) == 64:
             return h
-        return process_part(message[64:], *h)
+        return abcde_func_part(message[64:], *h)
 
 
 def sha1(data):
@@ -165,44 +165,41 @@ if __name__ == '__main__':
                 print("Error, could not find " + argument + " file.")
 
 
-def rotate_leftside(n, b):
-    return ((n << b) | (n >> (32 - b))) & 0xffffffff
-
-
-def process_part(chunk, h0, h1, h2, h3, h4):
-    assert len(chunk) == 64
-    w = [0] * 80
-    for i in range(16):
-        w[i] = struct.unpack(b'>I', chunk[i * 4:i * 4 + 4])[0]
-    for i in range(16, 80):
-        w[i] = rotate_leftside(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1)
-    a = h0
-    b = h1
-    c = h2
-    d = h3
-    e = h4
-
-    for i in range(80):
-        if 0 <= i <= 19:
-            f = d ^ (b & (c ^ d))
-            k = 0x5A827999
-        elif 20 <= i <= 39:
-            f = b ^ c ^ d
-            k = 0x6ED9EBA1
-        elif 40 <= i <= 59:
-            f = (b & c) | (b & d) | (c & d)
-            k = 0x8F1BBCDC
-        elif 60 <= i <= 79:
-            f = b ^ c ^ d
-            k = 0xCA62C1D6
-
-        a, b, c, d, e = ((rotate_leftside(a, 5) + f + e + k + w[i]) & 0xffffffff,
-                         a, rotate_leftside(b, 30), c, d)
-
+def do_abcde(h0, h1, h2, h3, h4,a, b, c, d, e):
     h0 = (h0 + a) & 0xffffffff
     h1 = (h1 + b) & 0xffffffff
     h2 = (h2 + c) & 0xffffffff
     h3 = (h3 + d) & 0xffffffff
     h4 = (h4 + e) & 0xffffffff
-
     return h0, h1, h2, h3, h4
+
+
+def rotate_leftside(n, b):
+    return ((n << b) | (n >> (32 - b))) & 0xffffffff
+
+
+def abcde_func_part(bite, h0, h1, h2, h3, h4):
+    assert len(bite) == 64
+    w = [0] * 80
+    a, b, c, d, e = h0, h1, h2, h3, h4
+    for i in range(16):
+        w[i] = struct.unpack(b'>I', bite[i * 4:i * 4 + 4])[0]
+    for i in range(16, 80):
+        w[i] = rotate_leftside(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1)
+
+    for i in range(80):
+        if i <= 19:
+            f = d ^ (b & (c ^ d))
+            k = 0x5A827999
+        elif i <= 39 or i >= 60:
+            f = b ^ c ^ d
+            k = 0x6ED9EBA1
+            if i >= 60:
+                k = 0xCA62C1D6
+        elif i <= 59:
+            f = (b & c) | (b & d) | (c & d)
+            k = 0x8F1BBCDC
+
+        a, b, c, d, e = ((rotate_leftside(a, 5) + f + e + k + w[i]) & 0xffffffff,
+                         a, rotate_leftside(b, 30), c, d)
+    return do_abcde(h0, h1, h2, h3, h4,a, b, c, d, e)
