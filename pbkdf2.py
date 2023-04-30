@@ -1,7 +1,6 @@
 import math
-
-import hashing
 import hmac
+import hashing
 
 LENGTH = 20
 
@@ -33,7 +32,7 @@ def gen(p, s, c, i):
     return result
 
 
-def generate_password(p, s, c, dk_len):
+def gen_passw(p, s, c, dk_len):
     l = math.ceil(dk_len / LENGTH)
     result = []
     for j in range(l):
@@ -42,7 +41,7 @@ def generate_password(p, s, c, dk_len):
     return result[:dk_len]
 
 
-def generate_password_opt(p, s, c, dk_len):
+def gen_passw_opt(p, s, c, dk_len):
     l = math.ceil(dk_len / LENGTH)
     result = []
     for j in range(l):

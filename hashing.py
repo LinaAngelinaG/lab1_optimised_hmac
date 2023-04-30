@@ -1,17 +1,18 @@
-from __future__ import print_function
-import struct
 import io
+import struct
 import hashing
+from __future__ import print_function
 
-BLOCK_SIZE_SHA_1_BYTES = 64
-BLOCK_SIZE_SHA_1_BITS = BLOCK_SIZE_SHA_1_BYTES * 8
-IPAD = bytearray(b'\x36')*64
+
+SHA1_BLOCK_SIZE = 64
+SHA1_DLOCK_BITS = SHA1_BLOCK_SIZE * 8
 OPAD = bytearray(b'\x5c')*64
+IPAD = bytearray(b'\x36')*64
 
 
 def new(key, message):
-    if len(key) < BLOCK_SIZE_SHA_1_BYTES:
-        zero_padding = bytearray(BLOCK_SIZE_SHA_1_BYTES - len(key))
+    if len(key) < SHA1_BLOCK_SIZE:
+        zero_padding = bytearray(SHA1_BLOCK_SIZE - len(key))
         key = key + zero_padding
     key_xor_ipad = bytes(a ^ b for (a, b) in zip(key, IPAD))
     key_xor_ipad = key_xor_ipad + message
@@ -23,19 +24,19 @@ def new(key, message):
 
 
 def new_f_hash(key):
-    if len(key) < BLOCK_SIZE_SHA_1_BYTES:
-        zero_padding = bytearray(BLOCK_SIZE_SHA_1_BYTES - len(key))
+    if len(key) < SHA1_BLOCK_SIZE:
+        zero_padding = bytearray(SHA1_BLOCK_SIZE - len(key))
         key = key + zero_padding
     key_xor_ipad = bytes(a ^ b for (a, b) in zip(key, IPAD))
-    _h_1 = hashing.sha1_func(key_xor_ipad)
+    _h_1 = hashing.sha1_1_hash(key_xor_ipad)
     key_xor_opad = bytes(a ^ b for (a, b) in zip(key, OPAD))
-    _h_2 = hashing.sha1_func(key_xor_opad)
+    _h_2 = hashing.sha1_1_hash(key_xor_opad)
     return (_h_1, _h_2)
 
 
 def new_trunc(message, first_hash, second_hash):
-    hashed = hashing.sha1_part(message, first_hash)
-    result_hash = hashing.sha1_part(bytes.fromhex(hashed), second_hash)
+    hashed = hashing.sha1_to_init(message, first_hash)
+    result_hash = hashing.sha1_to_init(bytes.fromhex(hashed), second_hash)
     return bytes.fromhex(result_hash)
 
 
@@ -125,11 +126,11 @@ def sha1(data):
     return Sha1Hash().update(data).hexdigest()
 
 
-def sha1_func(data):
+def sha1_1_hash(data):
     return Sha1Hash().get_first_hash(data)
 
 
-def sha1_part(data, init_hash):
+def sha1_to_init(data, init_hash):
     return Sha1Hash().update_trunc(data, init_hash).hexdigest_trunc()
 
 
@@ -151,7 +152,6 @@ if __name__ == '__main__':
         except AttributeError:
             if sys.platform == "win32":
                 import msvcrt
-
                 msvcrt.setmode(sys.stdin.fileno(), os.O_BINARY)
             data = sys.stdin
         print('sha1-digest:', sha1(data))
