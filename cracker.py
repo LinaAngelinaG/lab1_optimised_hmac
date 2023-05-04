@@ -1,171 +1,114 @@
 import argparse
+import hashlib
 import pathlib
 import string
 import time
+from typing import Tuple, Union, Dict, List
+
 import generator
 from Crypto.Cipher import DES3
 
-SHA1_HASH_LEN = 20
-BOOST = 2
-IDii_SIZE = 24
-
-MASK = ['a', 'd', 'l', 'u']
-prefix = "0800000c"
-HASH_len = 4
-IDii_len = 4
+LETTER2ASCII_LETTERS: Dict[str, List[str]] = {
+    'a': list(string.ascii_letters) + list(string.digits + '!'),
+    'l': list(string.ascii_lowercase),
+    'u': list(string.ascii_uppercase),
+    'd': list(string.digits + '!'),
+}
 
 
-def get_hashmac_output_size(hash):
-    return SHA1_HASH_LEN*2
-
-
-def gain_params_from_file(file):
-    with open(file, "r") as f:
+def gain_params_from_file(filename: str) -> Tuple[str, str, str, Union[int, bytes], str]:
+    with open(filename, "r") as f:
         text = f.read()
-        bites = text.split('*')
-        if len(bites) == 11:
-            hash = get_hash_algo(bites[0])
-            algo = get_enc_algo(bites[1])
 
-            N_i = bites[2]
-            N_r = bites[3]
-            G_x = bites[4]
-            G_y = bites[5]
-            G_xy = bites[6]
-            Ci = bites[7]
-            Cr = bites[8]
-            SAi = bites[9]
+    bites = text.split('*')
+    if len(bites) == 11:
 
-            N_3 = G_xy + Ci + Cr
-            N_2 = G_x + G_y + Ci + Cr + SAi
-            N_1 = N_i + N_r
+        N_i, N_r, G_x, G_y, G_xy, Ci, Cr, SAi, E_k = bites[2:11]
 
-            E_k = bites[10]
+        N_3 = G_xy + Ci + Cr
+        N_2 = G_x + G_y + Ci + Cr + SAi
+        N_1 = N_i + N_r
 
-            iv = generator.get_iv_for_mode(algo, G_x + G_y)
+        iv = hashlib.sha1(bytes.fromhex(G_x + G_y)).digest()[:8]
 
-            return hash, algo, N_1, N_2, N_3, iv, E_k
-        else:
-            print("Ivalid file presented")
-            exit(0)
-
-
-def get_enc_algo(enc_id):
-    if enc_id == '5':
-        return '3des'
-    elif enc_id == '7':
-        return 'aes128'
-    elif enc_id == '8':
-        return 'aes192'
-    elif enc_id == '9':
-        return 'aes256'
+        return N_1, N_2, N_3, iv, E_k
     else:
-        print("Invalid encryption algorithm.")
-        exit(1)
+        raise ValueError(f"not enough values - {len(bites)}, need - 11")
 
 
-def get_hash_algo(hash_id):
-    if hash_id == '1':
-        return 'md5'
-    elif hash_id == '2':
-        return 'sha1'
-    else:
-        print("Invalid hash mode")
-        exit(1)
-
-
-def gain_list_from_mask(letter):
-    if letter == 'a':
-        return list(string.ascii_letters) + list(string.digits + '!')
-    if letter == 'l':
-        return list(string.ascii_lowercase)
-    if letter == 'u':
-        return list(string.ascii_uppercase)
-    if letter == 'd':
-        return list(string.digits + '!')
-
-
-def is_mask_valid(mask):
+def is_mask_valid(mask: str) -> bool:
     for mask_parameter in mask:
-        if mask_parameter not in MASK:
+        if mask_parameter not in ['a', 'd', 'l', 'u']:
             return False
     return True
 
 
-def gen_passwords(mask, dict_file):
-    list_passw = [gain_list_from_mask(letter) for letter in mask]
+def gen_passwords(mask: str, dict_file: str) -> list:
+    list_passw = [LETTER2ASCII_LETTERS[letter] for letter in mask]
     with open(dict_file, "r") as f:
         res = f.readlines()
-    passws = []
-    for word in res:
-        if word[-1] == '\n':
-            passws.append(word[:-1])
-        else:
-            passws.append(word)
+    passws = [word[:-1] if word[-1] == '\n' else word for word in res]
+
     return [passws] + list_passw
 
 
-def get_encoder(iv, key):
-    return DES3.new(key, DES3.MODE_CBC, IV=iv)
-
-
-def get_pare(passw_list):
-    passwords_count = 1
+def get_ords_bases(passwords: List[str]) -> List[int]:
     ords_bases = []
 
-    for custom_alphabet in passw_list:
+    for i, p in enumerate(passwords):
+        ords_bases.append(len(p) if i == 0 else ords_bases[i - 1] * len(p))
+    return ords_bases
+
+
+def get_passwords_count(passwords: List[str]) -> int:
+    passwords_count = 1
+    for custom_alphabet in passwords:
         passwords_count *= len(custom_alphabet)
-
-    for i in range(len(passw_list)):
-        if i == 0:
-            ords_bases.append(len(passw_list[i]))
-        else:
-            ords_bases.append(ords_bases[i-1] * len(passw_list[i]))
-
-    return ords_bases, passwords_count
+    return passwords_count
 
 
 def process(args):
-    if is_mask_valid(args.mask):
-        passwords = gen_passwords(args.mask, args.dict)
-        hash, algo, nonce_1, nonce_2_prt, nonce_3, iv, e_k = gain_params_from_file(args.file)
-        brute(passwords, hash, algo, nonce_1, nonce_2_prt, nonce_3, e_k, iv, args.opt)
-    else:
-        print("Incorrect mask parameters!")
-        exit(0)
+    if not is_mask_valid(args.mask):
+        ValueError(f"Invalid mask - {args.mask}")
+
+    passwords = gen_passwords(args.mask, args.dict)
+    nonce_1, nonce_2_prt, nonce_3, iv, e_k = gain_params_from_file(args.file)
+    brute(passwords, nonce_1, nonce_2_prt, nonce_3, e_k, iv, args.opt)
 
 
-def decrypt(hash, e_k, iv, skey_id_e):
-    text = get_encoder(iv, skey_id_e).decrypt(bytes.fromhex(e_k)).hex()
-    sep = get_hashmac_output_size(hash)
-    return text[:IDii_SIZE], text[(IDii_SIZE + (HASH_len * 2)):(IDii_SIZE + (HASH_len * 2) + sep)]
+def decrypt(e_k, iv, skey_id_e):
+    text = DES3.new(skey_id_e, DES3.MODE_CBC, IV=iv).decrypt(bytes.fromhex(e_k)).hex()
+    # IDi_len = 24,HASH_len = 4, sep = 40: (IDi_len + HASH_len  * 2):(IDi_len + HASH_len * 2 + sep)
+    return text[:24], text[32:72]
 
 
-def brute(passwords_list, hash, algo, nonce_1, nonce_2_prt, nonce_3, e_k, iv, opt):
-    bases, passwords = get_pare(passwords_list)
+def brute(passwords, nonce_1, nonce_2_prt, nonce_3, e_k, iv, opt):
+    bases = get_ords_bases(passwords=passwords)
+    num_passwords = get_passwords_count(passwords=passwords)
 
     counter = 0
     start = time.time()
-    for password in range(passwords):
+    for password in range(num_passwords):
         p_word = ''
         for i in range(len(bases)):
-            counter +=1
-            alp_m = passwords_list[i]
+            counter += 1
+            alp_m = passwords[i]
             alp_m_len = len(alp_m)
-            if i == 0:
-                p_word += alp_m[password % bases[i]]
-            else:
-                p_word += alp_m[((password * alp_m_len) // bases[i]) % alp_m_len]
+            p_word += (
+                alp_m[password % bases[i]] if i == 0 else alp_m[((password * alp_m_len) // bases[i]) % alp_m_len])
         skey_id = generator.prf(p_word.encode().hex(), nonce_1).hex()
         skey_id_e = generator.key_gen(skey_id, nonce_3, opt)
-        IDi, hash_i = decrypt(hash, e_k, iv, skey_id_e)
-        expected_hash = generator.prf(skey_id, nonce_2_prt + IDi[(IDii_len * 2):]).hex()
+        IDi, hash_i = decrypt(e_k, iv, skey_id_e)
+        expected_hash = generator.prf(skey_id, nonce_2_prt + IDi[8:]).hex()
         if hash_i == expected_hash:
             end = time.time()
-            print('Passed passwords: ' + str(counter) + ', speed: ' + str(round(counter / (end - start))) + ' cand/s\n','Password recovered : ', p_word)
+            print('Passed passwords: ' + str(counter)
+                  + ', speed: ' + str(round(counter / (end - start)))
+                  + ' cand/s\n', 'Password recovered : ', p_word)
             return
     end = time.time()
-    print('passwords: ' + str(counter) + ' speed: ' + str(round(counter / (end - start))) + ' cand/s\n','Password was not found :(')
+    print('passwords: ' + str(counter) + ' speed: ' + str(round(counter / (end - start)))
+          + ' cand/s\n', 'Password was not found :(')
 
 
 if __name__ == '__main__':
@@ -174,24 +117,13 @@ if __name__ == '__main__':
     parser.add_argument('-d',
                         '--dict',
                         type=pathlib.Path,
-                        action='store',
                         help='file with dictionary list')
     parser.add_argument('-m',
                         '--mask',
-                        action='store',
                         type=str,
-                        required=True,
-                        help=
-                        '''set mask for cracking password 
-                            a – u+l+d; 
-                            d – digits; 
-                            l – lower letters; 
-                            u – upper letters. 
-                        ''')
+                        required=True)
     parser.add_argument('file',
-                        type=pathlib.Path,
-                        action='store',
-                        help='file with all neccesary info')
+                        type=pathlib.Path)
     parser.add_argument('-o',
                         '--opt',
                         type=bool,
